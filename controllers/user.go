@@ -44,7 +44,7 @@ func (user User) Create() {
 
 	r.POST("/post", func(ctx *gin.Context) {
 		type PostRequest struct {
-			Title   string `json:"title" v:"required"`
+			Title   string `json:"title"`
 			PhotoId string `json:"photoId" v:"required"`
 		}
 		obj := new(PostRequest)

@@ -4,14 +4,17 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/nfnt/resize"
 	"github.com/xeuus/gt/pkg/db"
 	"github.com/xeuus/gt/pkg/jwt"
 	"github.com/xeuus/gt/pkg/rds"
 	"github.com/xeuus/instagram/api"
 	"github.com/xeuus/instagram/dao"
 	"image"
+	_ "image/gif"
+	"image/jpeg"
 	_ "image/jpeg"
-	"io/ioutil"
+	_ "image/png"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -38,12 +41,11 @@ func (photo Photo) Create() {
 
 	r.GET("/image/:id", func(ctx *gin.Context) {
 		id := ctx.Param("id")
-
 		p := dao.PhotoDAO{
 			DB: photo.DB.Get(),
 		}
 		p.FetchByID(id)
-
+		ctx.Header("Cache-Control", "max-age=86400")
 		ctx.Header("Content-Type", p.Mime)
 		ctx.File(p.URL)
 	})
@@ -56,7 +58,7 @@ func (photo Photo) Create() {
 			panic(err)
 		}
 
-		if file.Size > 1024*1024*2 {
+		if file.Size > 1024*1024*8 {
 			panic("Entity too large")
 		}
 		f, err := file.Open()
@@ -84,28 +86,46 @@ func (photo Photo) Create() {
 		}
 		f.Close()
 
-		path := fmt.Sprintf("%s/%v", STATIC_PATH, userID)
-		p.URL = path + "/" + p.GUID
 		f, err = file.Open()
+		if err != nil {
+			panic(err)
+		}
+		img, ext, err := image.Decode(f)
+		if err != nil {
+			panic(err)
+		}
+		f.Close()
+		maxWidth := float32(1024)
+		maxHeight := float32(1024)
 
-		if err != nil {
-			panic(err)
+		prefWidth := float32(im.Width)
+		prefHeight := float32(im.Height)
+
+		if prefWidth > maxWidth {
+			prefWidth = maxWidth
+			prefHeight = maxWidth / ratio
 		}
-		data, err := ioutil.ReadAll(f)
-		if err != nil {
-			panic(err)
+		if prefHeight > maxHeight {
+			prefHeight = maxHeight
+			prefWidth = maxHeight * ratio
 		}
+		out := resize.Resize(uint(prefWidth), uint(prefHeight), img, resize.MitchellNetravali)
+
+		path := fmt.Sprintf("%s/%v", STATIC_PATH, userID)
+		p.URL = path + "/" + p.GUID + "." + ext
 		os.MkdirAll(path, 0700)
-		err = ioutil.WriteFile(p.URL, data, os.ModePerm)
+		fl, err := os.Create(p.URL)
 		if err != nil {
 			panic(err)
 		}
+		jpeg.Encode(fl, out, nil)
+		fl.Close()
 		p.DeleteUnused()
 		p.Save()
 
 		api.Success(gin.H{
-			"src":  photo.API_ADDR + "/photo/image/" + p.GUID,
-			"id":   p.GUID,
+			"src": photo.API_ADDR + "/photo/image/" + p.GUID,
+			"id":  p.GUID,
 		}, ctx)
 
 	})
