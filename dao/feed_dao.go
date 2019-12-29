@@ -18,9 +18,9 @@ type FeedDAO struct {
 	Src         string    `json:"src"`
 }
 
-func (feed *FeedDAO) FetchList() []*FeedDAO {
+func (feed *FeedDAO) FetchList(lastTime gql.NullTime) []*FeedDAO {
 	var list []*FeedDAO
-	if a := gql.Read("posts ps").
+	a := gql.Read("posts ps").
 		Model(&feed).
 		Columns(
 			"ps.title title",
@@ -32,9 +32,13 @@ func (feed *FeedDAO) FetchList() []*FeedDAO {
 		).
 		Join("users us", "ps.user_id = us.id").
 		Join("photos ph", "ps.photo_id = ph.id").
-		OrderBy("-ps.created_date").
-		Use(feed.DB).
-		Scan(&list); a.GetError() != nil {
+		OrderBy("-ps.created_date")
+
+	if lastTime.Valid {
+		a.WhereLT("ps.created_date", lastTime.Time)
+	}
+	a.Top(30)
+	if a.Use(feed.DB).Scan(&list); a.GetError() != nil {
 		fmt.Println(a.Query())
 		panic(a.GetError())
 	}
